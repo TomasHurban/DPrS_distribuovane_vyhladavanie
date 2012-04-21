@@ -6,7 +6,7 @@ server_state
 			- value: part_copy_info
 	- parts - dict:
 		- key: part_name
-		- value:
+		- value: part_info - part_info:
 			- current_version
 			- providers - dict:
 				- key: provider_id
@@ -14,6 +14,9 @@ server_state
 	- connected_providers - dict:
 		- key: provider_id
 		- value: provider_pid
+	- waiting_parts - dict:
+		- key: part_name
+		- value: copy_requests_to_providers - set (TODO: not used)
 
 state_diff - dict:
 	- key: part_name

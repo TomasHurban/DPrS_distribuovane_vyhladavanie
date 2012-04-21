@@ -1,6 +1,8 @@
 -module(search_provider).
 
--export([create_and_activate/0]).
+-export([create_and_activate/0, invalidate/1]).
+
+-record(part, {part_name, part_data}).
 
 %%
 %% Include files
@@ -13,12 +15,16 @@
 
 
 create_and_activate() ->
-	central_server:connect(random_id(16), dict:new()).
+	AA = central_server:connect(random_id(16), dict:new()),
+	io:format(AA).
 
 %%
 %% for central_server
 %%
 search(What) ->
+	not_implemented.
+
+invalidate(Pid) ->
 	not_implemented.
 
 %%
