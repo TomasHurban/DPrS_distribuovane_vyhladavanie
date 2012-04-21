@@ -1,0 +1,21 @@
+server_state
+	- providers - dict:
+		- key: provider_id
+		- value: parts - dict:
+			- key: part_name
+			- value: part_copy_info
+	- parts - dict:
+		- key: part_name
+		- value:
+			- current_version
+			- providers - dict:
+				- key: provider_id
+				- value - part_copy_info
+	- connected_providers - dict:
+		- key: provider_id
+		- value: provider_pid
+
+state_diff - dict:
+	- key: part_name
+	- value: part_version
+	

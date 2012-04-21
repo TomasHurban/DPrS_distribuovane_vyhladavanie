@@ -1,2 +1,5 @@
 /.metadata
-/*.log
+/erlide.log
+/erlide.log.lck
+/safe_erlide.log
+/rpc_monitor-*.dump

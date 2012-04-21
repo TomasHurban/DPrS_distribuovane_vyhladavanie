@@ -3,4 +3,5 @@
 -include_lib("eunit/include/eunit.hrl").
 
 aaa_test() ->
-	central_server:start_link().
+	central_server:start_link(),
+	search_provider:create_and_activate().
