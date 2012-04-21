@@ -12,25 +12,13 @@
 -record(part_copy_info, {part_version, search_time}).
 -record(waiting_part_info, {part_data, copy_requests_to_providers}).
 
-%%
-%% Include files
-%%
-
-%%
-%% Exported Functions
-%%
--export([]).
-
-%%
-%% API Functions
-%%
-
-start_link() ->
-	gen_server:start_link({global, ?MODULE}, ?MODULE, [], []).
 
 %%
 %% for administration
 %%
+
+start_link() ->
+	gen_server:start_link({global, ?MODULE}, ?MODULE, [], []).
 
 update(PartName, PartData) ->
 	gen_server:call({global, ?MODULE}, {update, PartName, PartData}).
@@ -38,12 +26,14 @@ update(PartName, PartData) ->
 %%
 %% for client
 %%
+
 search(What) ->
 	not_implemented.
 
 %%
 %% for search provider
 %%
+
 connect(ProviderId, StateDiff) ->
 	gen_server:call({global, ?MODULE}, {connect, ProviderId, StateDiff}).
 
@@ -214,7 +204,7 @@ build_update_list(CurrentUpdateList, [AllPartsList_H | AllPartsList_T], PartsInP
 			FoundWaitingPart = dict:find(PartName, WaitingParts),
 			case FoundWaitingPart of
 				{ok, WaitingPartInfo} ->
-					[{as_data, PartName, WaitingPartInfo#waiting_part_info.part_data, CurrentPartVersion} | CurrentUpdateList];
+					[{as_data, PartName, WaitingPartInfo#waiting_part_info.part_data} | CurrentUpdateList];
 				error ->
 					[{ProviderId, _Parts} | _]  = dict:to_list(Providers),
 					[{from_provider, PartName, dict:fetch(ProviderId, ConnectedProviders) } | CurrentUpdateList]

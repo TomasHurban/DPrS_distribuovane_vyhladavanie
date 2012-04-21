@@ -22,3 +22,6 @@ state_diff - dict:
 	- key: part_name
 	- value: part_version
 	
+update_item:
+{as_data, part_name, part_data, version}
+{from_provider, part_name, provider}
