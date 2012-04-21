@@ -7,7 +7,7 @@
 -export([init/1, terminate/2, code_change/3, handle_info/2]).
 -export([handle_call/3, handle_cast/2]).
 
--record(provider_state, {parts}).
+-record(provider_state, {id, parts}).
 
 %%
 %% for administration
@@ -24,7 +24,7 @@ search(What, In, Pid) ->
 	gen_server:call(Pid, {search, What, In}).
 
 invalidate(Pid) ->
-	gen_server:call(Pid, {invalidate}).
+	gen_server:cast(Pid, {invalidate}).
 
 %%
 %% for another search provider
@@ -39,17 +39,11 @@ get(PartName, Pid) ->
 
 init([]) ->
 	Parts = dict:new(),
-	State = #provider_state{parts = Parts},
-	ConnectResponse = central_server:connect(random_id(16), dict:new()),
-	StateAfterCollected = 
-	case ConnectResponse of
-		ok ->
-			State;
-		UpdateList ->
-			collect_missing_data(State, UpdateList)
-			% TODO: build new StateDiff and connect
-	end,	
-	{ok, StateAfterCollected}.
+	Id = random_id(16),
+	State = #provider_state{
+		id = Id,
+		parts = Parts},
+	{ok, do_connecting_to_central_server(State)}.
 
 terminate(normal, _State) ->
 	ok.
@@ -62,8 +56,6 @@ handle_info(Msg, State) ->
 	{noreply, State}.
 
 handle_call({search, What, In}, _From, State) ->
-	not_implemented;
-handle_call({invalidate}, _From, State) ->
 	not_implemented;
 handle_call({get, PartName}, _From, State) ->
 	FoundPart = dict:find(PartName, State#provider_state.parts),
@@ -82,8 +74,11 @@ handle_call({get, PartName}, _From, State) ->
 		    }
 	end.
 
-handle_cast(_, _State) ->
-	not_implemented.
+handle_cast({invalidate}, State) ->
+	{
+		noreply,
+		do_connecting_to_central_server(State)
+	}.
 	
 %%
 %% Local Functions
@@ -117,3 +112,15 @@ collect_missing_data(State, [UpdateList_H | UpdateList_T]) ->
 			end
 	end,
 	collect_missing_data(NewState, UpdateList_T).
+
+do_connecting_to_central_server(State) ->
+	ConnectResponse = central_server:connect(State#provider_state.id, dict:new()),
+	StateAfterCollected = 
+	case ConnectResponse of
+		ok ->
+			State;
+		UpdateList ->
+			collect_missing_data(State, UpdateList)
+			% TODO: build new StateDiff and connect
+	end,
+	StateAfterCollected.
