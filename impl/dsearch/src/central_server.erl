@@ -103,7 +103,7 @@ handle_call({connect, ProviderId, StateDiff}, From, State) ->
 	
 	Parts = State#server_state.parts,
 	Parts_new = merge_providers_in_parts(Parts, dict:to_list(StateDiff), ProviderId),
-	
+	WaitingParts_new = remove_waiting_parts(State#server_state.waiting_parts, Parts_new),
 	UpdateList = build_update_list([], dict:to_list(Parts_new), PartsInProvider_new2, State#server_state.waiting_parts, State#server_state.connected_providers),
 	
 	ConnectedProviders_new = 
@@ -117,7 +117,8 @@ handle_call({connect, ProviderId, StateDiff}, From, State) ->
 	State_new = State#server_state{
     	providers = Providers_new,
 		parts = Parts_new,
-		connected_providers = ConnectedProviders_new
+		connected_providers = ConnectedProviders_new,
+		waiting_parts = WaitingParts_new
 	},
 	
 	case UpdateList of
@@ -178,6 +179,19 @@ merge_providers_in_parts(CurrentParts, [StateDiffList_H | StateDiffList_T], Prov
 		StateDiffList_T,
 		ProviderId
 	).
+
+remove_waiting_parts(CurrentWaitingParts, []) ->
+	CurrentWaitingParts;
+remove_waiting_parts(CurrentWaitingParts, [PartsList_H | PartsList_T]) ->
+	{PartName, PartInfo} = PartsList_H,
+	Providers = PartInfo#part_info.providers,
+	CopiesCount = dict:size(Providers),
+	if
+		CopiesCount >= 4 ->
+			remove_waiting_parts(dict:erase(PartName, CurrentWaitingParts), PartsList_T);
+		true ->
+			remove_waiting_parts(CurrentWaitingParts, PartsList_T)
+	end.
 
 build_update_list(CurrentUpdateList, [], _PartsInProvider, _WaitingParts, _ConnectedProviders) ->
 	CurrentUpdateList;

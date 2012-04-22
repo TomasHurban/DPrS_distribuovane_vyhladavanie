@@ -25,3 +25,6 @@ state_diff - dict:
 update_item:
 {as_data, part_name, part_data, version}
 {from_provider, part_name, provider}
+
+search_results:
+list of part names where the specified string occurs
