@@ -56,7 +56,11 @@ handle_info(Msg, State) ->
 	{noreply, State}.
 
 handle_call({search, What, In}, _From, State) ->
-	not_implemented;
+	{
+        reply,
+        {ok},
+        do_search([], What, In, State#provider_state.parts)
+    };
 handle_call({get, PartName}, _From, State) ->
 	FoundPart = dict:find(PartName, State#provider_state.parts),
 	case FoundPart of
@@ -124,3 +128,15 @@ do_connecting_to_central_server(State) ->
 			% TODO: build new StateDiff and connect
 	end,
 	StateAfterCollected.
+
+do_search(CurrentResults, _What, [], _Parts) ->
+	CurrentResults;
+do_search(CurrentResults, What, [In_H | In_T], Parts) ->
+	PartData = dict:fetch(In_H, Parts),
+	Pos = string:str(PartData, What),
+	if
+		Pos > 0 ->
+			do_search([In_H | CurrentResults], What, In_T, Parts);
+		true ->
+			do_search(CurrentResults, What, In_T, Parts)
+	end.

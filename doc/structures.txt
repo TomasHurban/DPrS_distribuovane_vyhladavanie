@@ -21,7 +21,11 @@ server_state
 state_diff - dict:
 	- key: part_name
 	- value: part_version
-	
+
+search_distribution - dict:
+	- key: provider_pid
+	- value: list_of_part_names
+
 update_item:
 {as_data, part_name, part_data, version}
 {from_provider, part_name, provider}

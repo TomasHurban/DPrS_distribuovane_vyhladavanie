@@ -2,7 +2,7 @@
 -behaviour(gen_server).
 
 -export([start_link/0]).
--export([connect/2, update/2]).
+-export([update/2, search/1, connect/2]).
 
 -export([init/1, terminate/2, code_change/3, handle_info/2]).
 -export([handle_call/3, handle_cast/2]).
@@ -28,7 +28,7 @@ update(PartName, PartData) ->
 %%
 
 search(What) ->
-	not_implemented.
+	gen_server:call({global, ?MODULE}, {search, What}).
 
 %%
 %% for search provider
@@ -87,7 +87,10 @@ handle_call({update, PartName, PartData}, _From, State) ->
 				State#server_state.waiting_parts
 			)
 		}
-    };	
+    };
+handle_call({search, What}, _From, State) ->
+	SearchDistribution = build_search_distribution(dict:new(), State#server_state.parts, State#server_state.connected_providers);
+	% TODO: not complete
 handle_call({connect, ProviderId, StateDiff}, From, State) ->
 	Providers = State#server_state.providers,
 	FoundProvider = dict:find(ProviderId, Providers),
@@ -137,7 +140,7 @@ handle_call({connect, ProviderId, StateDiff}, From, State) ->
 	end.
 
 handle_cast(_, _State) ->
-	not_implemented.
+	nothing.
 
 %%
 %% Local Functions
@@ -187,7 +190,7 @@ remove_waiting_parts(CurrentWaitingParts, [PartsList_H | PartsList_T]) ->
 	Providers = PartInfo#part_info.providers,
 	CopiesCount = dict:size(Providers),
 	if
-		CopiesCount >= 4 ->
+		CopiesCount >= 4 -> % TODO: not constant
 			remove_waiting_parts(dict:erase(PartName, CurrentWaitingParts), PartsList_T);
 		true ->
 			remove_waiting_parts(CurrentWaitingParts, PartsList_T)
@@ -198,9 +201,9 @@ build_update_list(CurrentUpdateList, [], _PartsInProvider, _WaitingParts, _Conne
 build_update_list(CurrentUpdateList, [AllPartsList_H | AllPartsList_T], PartsInProvider, WaitingParts, ConnectedProviders) ->
 	{PartName, PartInfo} = AllPartsList_H,
 	CurrentPartVersion = PartInfo#part_info.current_version,
-	Providers = PartInfo#part_info.providers,
+	ProvidersInPart = PartInfo#part_info.providers,
 	
-	CopiesCount = dict:size(Providers),
+	CopiesCount = dict:size(ProvidersInPart),
 	PartNotInEnoughProviders = (CopiesCount < 4), % TODO: not constant
 	
 	FoundPartInProvider = dict:find(PartName, PartsInProvider),
@@ -220,9 +223,12 @@ build_update_list(CurrentUpdateList, [AllPartsList_H | AllPartsList_T], PartsInP
 				{ok, WaitingPartInfo} ->
 					[{as_data, PartName, WaitingPartInfo#waiting_part_info.part_data} | CurrentUpdateList];
 				error ->
-					[{ProviderId, _Parts} | _]  = dict:to_list(Providers),
-					[{from_provider, PartName, dict:fetch(ProviderId, ConnectedProviders) } | CurrentUpdateList]
-					% TODO: from random provider and check if connected using connected_providers
+					[{ProviderId, _Parts} | _]  = dict:to_list(ProvidersInPart),
+					[{
+						from_provider,
+						PartName,
+						random_connected_provider_pid_for_part(dict:to_list(ProvidersInPart), ConnectedProviders)
+					} | CurrentUpdateList]
 			end;
 		true ->
 			CurrentUpdateList
@@ -242,3 +248,28 @@ invalidate_providers_with_part([ProvidersInPartList_H | ProvidersInPartList_T], 
 			nothing
 	end,
 	invalidate_providers_with_part(ProvidersInPartList_T, ConnectedProviders).
+
+random_connected_provider_pid_for_part([], ConnectedProviders) ->
+	not_found;
+random_connected_provider_pid_for_part(ProvidersInPartList, ConnectedProviders) ->
+	Pos = random:uniform(length(ProvidersInPartList)),
+	Nth = lists:nth(Pos, ProvidersInPartList),
+	{ProviderId, _} = Nth,
+	FoundInConnected = dict:find(ProviderId, ConnectedProviders),
+	case FoundInConnected of
+		{ok, ProviderPid} ->
+			ProviderPid;
+		error ->
+			random_connected_provider_pid_for_part(lists:delete(Nth, ProvidersInPartList), ConnectedProviders)
+	end.
+
+build_search_distribution(CurrentSearchDistribution, [], ConnectedProviders) ->
+	CurrentSearchDistribution;
+build_search_distribution(CurrentSearchDistribution, [AllPartsList_H | AllPartsList_T], ConnectedProviders) ->
+	{PartName, PartInfo} = AllPartsList_H,
+	ProviderPid = random_connected_provider_pid_for_part(PartInfo#part_info.providers, ConnectedProviders),
+	build_search_distribution(
+		dict:append(ProviderPid, PartName, CurrentSearchDistribution),
+		AllPartsList_T,
+		ConnectedProviders
+	).
