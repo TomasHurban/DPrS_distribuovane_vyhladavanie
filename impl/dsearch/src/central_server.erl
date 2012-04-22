@@ -89,8 +89,13 @@ handle_call({update, PartName, PartData}, _From, State) ->
 		}
     };
 handle_call({search, What}, _From, State) ->
-	SearchDistribution = build_search_distribution(dict:new(), State#server_state.parts, State#server_state.connected_providers);
-	% TODO: not complete
+	SearchDistribution = build_search_distribution(dict:new(), State#server_state.parts, State#server_state.connected_providers),
+	distribute_search(dict:to_list(SearchDistribution), What),
+	{
+        reply,
+        {ok},
+		collect_results([], dict:size())
+    };
 handle_call({connect, ProviderId, StateDiff}, From, State) ->
 	Providers = State#server_state.providers,
 	FoundProvider = dict:find(ProviderId, Providers),
@@ -223,7 +228,6 @@ build_update_list(CurrentUpdateList, [AllPartsList_H | AllPartsList_T], PartsInP
 				{ok, WaitingPartInfo} ->
 					[{as_data, PartName, WaitingPartInfo#waiting_part_info.part_data} | CurrentUpdateList];
 				error ->
-					[{ProviderId, _Parts} | _]  = dict:to_list(ProvidersInPart),
 					[{
 						from_provider,
 						PartName,
@@ -245,11 +249,11 @@ invalidate_providers_with_part([ProvidersInPartList_H | ProvidersInPartList_T], 
 		{ok, Pid} ->
 			search_provider:invalidate(Pid);
 		error ->
-			nothing
+			do_nothing
 	end,
 	invalidate_providers_with_part(ProvidersInPartList_T, ConnectedProviders).
 
-random_connected_provider_pid_for_part([], ConnectedProviders) ->
+random_connected_provider_pid_for_part([], _ConnectedProviders) ->
 	not_found;
 random_connected_provider_pid_for_part(ProvidersInPartList, ConnectedProviders) ->
 	Pos = random:uniform(length(ProvidersInPartList)),
@@ -263,7 +267,7 @@ random_connected_provider_pid_for_part(ProvidersInPartList, ConnectedProviders) 
 			random_connected_provider_pid_for_part(lists:delete(Nth, ProvidersInPartList), ConnectedProviders)
 	end.
 
-build_search_distribution(CurrentSearchDistribution, [], ConnectedProviders) ->
+build_search_distribution(CurrentSearchDistribution, [], _ConnectedProviders) ->
 	CurrentSearchDistribution;
 build_search_distribution(CurrentSearchDistribution, [AllPartsList_H | AllPartsList_T], ConnectedProviders) ->
 	{PartName, PartInfo} = AllPartsList_H,
@@ -273,3 +277,20 @@ build_search_distribution(CurrentSearchDistribution, [AllPartsList_H | AllPartsL
 		AllPartsList_T,
 		ConnectedProviders
 	).
+
+distribute_search([], _What) ->
+	ok;
+distribute_search([SearchDistribution_H | SearchDistribution_T], What) ->
+	{ProviderPid, SearchIn} = SearchDistribution_H,
+	spawn_link(central_server, search_using_provider, [What, SearchIn, ProviderPid, self()]),
+	distribute_search(SearchDistribution_T, What).
+
+search_using_provider(What, SearchIn, ProviderPid, ParentPid) ->
+	ParentPid ! search_provider:search(What, SearchIn, ProviderPid).
+
+collect_results(CurrentResults, RemainingCount) when RemainingCount == 0 ->
+	CurrentResults;
+collect_results(CurrentResults, RemainingCount) ->
+	receive
+			Result -> collect_results([Result | CurrentResults], RemainingCount - 1)
+	end.
