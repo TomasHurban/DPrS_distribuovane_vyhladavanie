@@ -27,8 +27,14 @@ search_distribution - dict:
 	- value: list_of_part_names
 
 update_item:
-{as_data, part_name, part_data, version}
+{as_data, part_name, part_version, part_data}
 {from_provider, part_name, provider}
 
 search_results:
 list of part names where the specified string occurs
+
+provider_state:
+	- id
+	- parts - list: part_info(in provider):
+		- part_version
+		- part_data

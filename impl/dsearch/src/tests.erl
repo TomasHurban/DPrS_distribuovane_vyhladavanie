@@ -4,5 +4,15 @@
 
 aaa_test() ->
 	central_server:start_link(),
-	central_server:update("1", "abc"),
-	search_provider:create_and_activate().
+	central_server:update("part1", "abc"),
+	central_server:update("part2", "def"),
+	central_server:update("part3", "ghi"),
+	central_server:update("part4", "jkl"),
+	central_server:update("part5", "mno"),
+	central_server:update("part6", "pqr"),
+	central_server:update("part7", "stu"),
+	central_server:update("part8", "vwx"),
+	central_server:update("part9", "yz"),
+	search_provider:create_and_activate(),
+	Results = central_server:search(g),
+	ok.

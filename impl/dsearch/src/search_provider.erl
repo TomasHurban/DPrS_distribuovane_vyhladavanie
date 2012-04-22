@@ -8,6 +8,7 @@
 -export([handle_call/3, handle_cast/2]).
 
 -record(provider_state, {id, parts}).
+-record(part_info, {part_version, part_data}).
 
 %%
 %% for administration
@@ -43,7 +44,7 @@ init([]) ->
 	State = #provider_state{
 		id = Id,
 		parts = Parts},
-	{ok, do_connecting_to_central_server(State)}.
+	{ok, do_connecting_to_central_server(State, dict:new())}.
 
 terminate(normal, _State) ->
 	ok.
@@ -64,11 +65,12 @@ handle_call({search, What, In}, _From, State) ->
 handle_call({get, PartName}, _From, State) ->
 	FoundPart = dict:find(PartName, State#provider_state.parts),
 	case FoundPart of
-		{ok, PartData} ->
+		{ok, PartInfo} ->
 			{
 		        reply,
 		        {ok},
-		        PartData
+		        PartInfo#part_info.part_version,
+				PartInfo#part_info.part_data
 		    };
 		error ->
 			{
@@ -81,7 +83,7 @@ handle_call({get, PartName}, _From, State) ->
 handle_cast({invalidate}, State) ->
 	{
 		noreply,
-		do_connecting_to_central_server(State)
+		do_connecting_to_central_server(State, dict:new())
 	}.
 	
 %%
@@ -93,47 +95,54 @@ random_id(0) ->
 random_id(Length) ->
 	[random:uniform(26) + 64 | random_id(Length - 1)].
 
-collect_missing_data(State, []) ->
-	State;
-collect_missing_data(State, [UpdateList_H | UpdateList_T]) ->
-	NewState =
+collect_missing_data(CurrentState, CurrentStateDiff, []) ->
+	{CurrentState, CurrentStateDiff};
+collect_missing_data(CurrentState, CurrentStateDiff, [UpdateList_H | UpdateList_T]) ->
+	{NewState, NewStateDiff} =
 	case UpdateList_H of
-		{as_data, PartName, PartData} ->
-			State#provider_state{
-				parts = dict:store(PartName, PartData, State#provider_state.parts)
+		{as_data, PartName, PartVersion, PartData} ->
+			{
+				CurrentState#provider_state{
+					parts = dict:store(PartName, PartData, CurrentState#provider_state.parts)
+				},
+				dict:store(PartName, PartVersion, CurrentStateDiff)
 			};
 		{from_provider, PartName, ProviderPid} ->
 			ProviderResponse = search_provider:get(PartName, ProviderPid),
 			case ProviderResponse of
-				{ok, PartData} ->
-					State#provider_state{
-						parts = dict:store(PartName, PartData, State#provider_state.parts)
+				{ok, PartVersion, PartData} ->
+					{
+						CurrentState#provider_state{
+							parts = dict:store(PartName, PartData, CurrentState#provider_state.parts)
+						},
+						dict:store(PartName, PartVersion, CurrentStateDiff)
 					};
 				_ ->
-					State
+					{CurrentState, CurrentStateDiff}
 					% when the data could not be obtained from other provider, this provider connects with the StateDiff
 					% which does not contain this data part, so the server suggests him some new provider to obtain the part from
 			end
 	end,
-	collect_missing_data(NewState, UpdateList_T).
+	collect_missing_data(NewState, NewStateDiff, UpdateList_T).
 
-do_connecting_to_central_server(State) ->
-	ConnectResponse = central_server:connect(State#provider_state.id, dict:new()),
+do_connecting_to_central_server(State, StateDiff) ->
+	ConnectResponse = central_server:connect(State#provider_state.id, StateDiff),
 	StateAfterCollected = 
 	case ConnectResponse of
 		ok ->
 			State;
-		UpdateList ->
-			collect_missing_data(State, UpdateList)
-			% TODO: build new StateDiff and connect
+		{update, UpdateList} ->
+			{NewState, NewStateDiff} = collect_missing_data(State, dict:new(), UpdateList),
+			do_connecting_to_central_server(NewState, NewStateDiff),
+			NewState
 	end,
 	StateAfterCollected.
 
 do_search(CurrentResults, _What, [], _Parts) ->
 	CurrentResults;
 do_search(CurrentResults, What, [In_H | In_T], Parts) ->
-	PartData = dict:fetch(In_H, Parts),
-	Pos = string:str(PartData, What),
+	PartInfo = dict:fetch(In_H, Parts),
+	Pos = string:str(PartInfo#part_info.part_data, What),
 	if
 		Pos > 0 ->
 			do_search([In_H | CurrentResults], What, In_T, Parts);

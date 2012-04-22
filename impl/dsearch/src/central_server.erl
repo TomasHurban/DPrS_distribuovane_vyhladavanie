@@ -28,14 +28,14 @@ update(PartName, PartData) ->
 %%
 
 search(What) ->
-	gen_server:call({global, ?MODULE}, {search, What}).
+	gen_server:call({global, ?MODULE}, {search, What}, 200000).
 
 %%
 %% for search provider
 %%
 
 connect(ProviderId, StateDiff) ->
-	gen_server:call({global, ?MODULE}, {connect, ProviderId, StateDiff}).
+	gen_server:call({global, ?MODULE}, {connect, ProviderId, StateDiff}, 200000).
 
 %%
 %% Callbacks
@@ -111,7 +111,7 @@ handle_call({connect, ProviderId, StateDiff}, From, State) ->
 	
 	Parts = State#server_state.parts,
 	Parts_new = merge_providers_in_parts(Parts, dict:to_list(StateDiff), ProviderId),
-	WaitingParts_new = remove_waiting_parts(State#server_state.waiting_parts, Parts_new),
+	WaitingParts_new = remove_waiting_parts(State#server_state.waiting_parts, dict:to_list(Parts_new)),
 	UpdateList = build_update_list([], dict:to_list(Parts_new), PartsInProvider_new2, State#server_state.waiting_parts, State#server_state.connected_providers),
 	
 	ConnectedProviders_new = 
@@ -133,7 +133,7 @@ handle_call({connect, ProviderId, StateDiff}, From, State) ->
 		[] ->
 			{
 		        reply,
-		        {ok},
+		        ok,
 		        State_new
 		    };
 		_ ->
@@ -159,7 +159,10 @@ merge_parts_in_provider(CurrentPartsInProvider, [StateDiffList_H | StateDiffList
 	merge_parts_in_provider(
 		dict:store(
 		  	PartName,
-			PartVersion,
+			#part_copy_info{
+				part_version = PartVersion,
+				search_time = undefined
+			},
 			CurrentPartsInProvider
 		),
 		StateDiffList_T
@@ -169,19 +172,22 @@ merge_providers_in_parts(CurrentParts, [], _ProviderId) ->
 	CurrentParts;
 merge_providers_in_parts(CurrentParts, [StateDiffList_H | StateDiffList_T], ProviderId) ->
 	{PartName, PartVersion} = StateDiffList_H,
-	{_CurrentVersion, ProvidersInPart} = dict:fetch(PartName, CurrentParts),
+	PartInfo = dict:fetch(PartName, CurrentParts),
+	ProvidersInPart = PartInfo#part_info.providers,
 	
 	merge_providers_in_parts(
 		dict:store(
 		  	PartName,
-			dict:store(
-				ProviderId,
-				#part_copy_info{
-					part_version = PartVersion,
-					search_time = undefined
-				},
-				ProvidersInPart
-			),
+			PartInfo#part_info{
+				providers = dict:store(
+					ProviderId,
+					#part_copy_info{
+						part_version = PartVersion,
+						search_time = undefined
+					},
+					ProvidersInPart
+				)
+			},			
 			CurrentParts
 		),
 		StateDiffList_T,
@@ -209,8 +215,8 @@ build_update_list(CurrentUpdateList, [AllPartsList_H | AllPartsList_T], PartsInP
 	ProvidersInPart = PartInfo#part_info.providers,
 	
 	CopiesCount = dict:size(ProvidersInPart),
-	PartNotInEnoughProviders = (CopiesCount < 4), % TODO: not constant
-	
+	PartNotInEnoughProviders = (CopiesCount < 1), % TODO: not constant
+
 	FoundPartInProvider = dict:find(PartName, PartsInProvider),
 	LowerPartVersionInProvider = 
 	case FoundPartInProvider of
@@ -226,7 +232,7 @@ build_update_list(CurrentUpdateList, [AllPartsList_H | AllPartsList_T], PartsInP
 			FoundWaitingPart = dict:find(PartName, WaitingParts),
 			case FoundWaitingPart of
 				{ok, WaitingPartInfo} ->
-					[{as_data, PartName, WaitingPartInfo#waiting_part_info.part_data} | CurrentUpdateList];
+					[{as_data, PartName, CurrentPartVersion, WaitingPartInfo#waiting_part_info.part_data} | CurrentUpdateList];
 				error ->
 					[{
 						from_provider,
