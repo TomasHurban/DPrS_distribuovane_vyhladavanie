@@ -237,20 +237,20 @@ build_update_list(CurrentUpdateList, [AllPartsList_H | AllPartsList_T], PartsInP
 	ProvidersInPart = PartInfo#part_info.providers,
 	
 	CopiesCount = dict:size(ProvidersInPart),
-	PartNotInEnoughProviders = (CopiesCount < 1), % TODO: not constant
+	PartNotInEnoughProviders = (CopiesCount < 4), % TODO: not constant
 
 	FoundPartInProvider = dict:find(PartName, PartsInProvider),
-	LowerPartVersionInProvider = 
+	{LowerPartVersionInProvider, PartAlreadyInProvider} = 
 	case FoundPartInProvider of
 		{ok, PartCopyInfo} ->
-			PartCopyInfo#part_copy_info.part_version < CurrentPartVersion;
+			{PartCopyInfo#part_copy_info.part_version < CurrentPartVersion, true};
 		error ->
-			false
+			{false, false}
 	end,
 	
 	NewUpdateList = 
 	if
-		PartNotInEnoughProviders or LowerPartVersionInProvider ->
+		(PartNotInEnoughProviders and (not PartAlreadyInProvider)) or LowerPartVersionInProvider ->
 			FoundWaitingPart = dict:find(PartName, WaitingParts),
 			case FoundWaitingPart of
 				{ok, WaitingPartInfo} ->

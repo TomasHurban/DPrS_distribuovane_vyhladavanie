@@ -15,5 +15,8 @@ aaa_test() ->
 	central_server:update("part8", "vwx"),
 	central_server:update("part9", "yz"),
 	search_provider:create_and_activate(),
+	search_provider:create_and_activate(),
+	search_provider:create_and_activate(),
+	search_provider:create_and_activate(),
 	{ok, Results} = central_server:search("g"),
 	ok.

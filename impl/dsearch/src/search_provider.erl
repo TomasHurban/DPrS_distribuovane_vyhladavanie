@@ -16,7 +16,7 @@
 
 create_and_activate() ->
 	log("search provider started ..."),
-	gen_server:start_link({global, ?MODULE}, ?MODULE, [], []).
+	gen_server:start_link({global, random_id(20)}, ?MODULE, [], []),
 
 %%
 %% for central_server
@@ -100,6 +100,7 @@ handle_cast({invalidate}, State) ->
 random_id(0) ->
 	[];
 random_id(Length) ->
+	random:seed(erlang:now()),
 	[random:uniform(26) + 64 | random_id(Length - 1)].
 
 collect_missing_data(CurrentState, CurrentStateDiff, []) ->
