@@ -15,17 +15,20 @@
 %%
 
 create_and_activate() ->
-	gen_server:start_link({global, ?MODULE}, ?MODULE, [], []),
-	log("search provider started ...").
+	log("search provider started ..."),
+	gen_server:start_link({global, ?MODULE}, ?MODULE, [], []).
 
 %%
 %% for central_server
 %%
 
 search(What, In, Pid) ->
+	log("search: " ++ What),
 	gen_server:call(Pid, {search, What, In}, 200000).
 
 invalidate(Pid) ->
+	MsgToLog = "invalidate: " ++ io_lib:format('~p', [Pid]),
+	log(MsgToLog),
 	gen_server:cast(Pid, {invalidate}).
 
 %%
@@ -33,6 +36,8 @@ invalidate(Pid) ->
 %%
 
 get(PartName, Pid) ->
+	MsgToLog = "get: " ++ PartName ++ ", " ++ io_lib:format('~p', [Pid]),
+	log(MsgToLog),
 	gen_server:call(Pid, {get, PartName}).
 
 %%

@@ -20,10 +20,12 @@
 %%
 
 start_link() ->
-	gen_server:start_link({global, ?MODULE}, ?MODULE, [], []),
-	log("central server started ...").
+	log("central server started ..."),
+	gen_server:start_link({global, ?MODULE}, ?MODULE, [], []).
 
 update(PartName, PartData) ->
+	MsgToLog = "update: " ++ PartName ++ ", " ++ PartData,
+	log(MsgToLog),
 	gen_server:call({global, ?MODULE}, {update, PartName, PartData}).
 
 %%
@@ -31,6 +33,7 @@ update(PartName, PartData) ->
 %%
 
 search(What) ->
+	log("search: " ++ What),
 	gen_server:call({global, ?MODULE}, {search, What}, 200000).
 
 %%
@@ -38,13 +41,17 @@ search(What) ->
 %%
 
 connect(ProviderId, StateDiff) ->
+	MsgToLog = "connected provider ID: " ++ io_lib:format('~p', [ProviderId]),
+	log(MsgToLog),
 	gen_server:call({global, ?MODULE}, {connect, ProviderId, StateDiff}, 200000).
+
 
 %%
 %% Callbacks
 %%
 
 init([]) ->
+	log("initialization ..."),
 	Providers = dict:new(),
 	Parts = dict:new(),
 	ConnectedProviders = dict:new(),
@@ -52,6 +59,7 @@ init([]) ->
 	{ok, #server_state{providers = Providers, parts = Parts, connected_providers = ConnectedProviders, waiting_parts = WaitingParts}}.
 
 terminate(normal, _State) ->
+	log("termination ..."),
 	ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -66,9 +74,12 @@ handle_call({update, PartName, PartData}, _From, State) ->
 	NewVersion =
 	case FoundPart of
 		{ok, PartInfo} ->
+			MsgToLog = io_lib:format('updating part \"" ++ PartName ++ "\" to version ~p', [PartInfo#part_info.current_version + 1]),
+			log(MsgToLog),
 			invalidate_providers_with_part(dict:to_list(PartInfo#part_info.providers), State#server_state.connected_providers),
 			PartInfo#part_info.current_version + 1;
 		error ->
+			log(PartName ++ " version set to 1"),
 			1
 	end,
 	
