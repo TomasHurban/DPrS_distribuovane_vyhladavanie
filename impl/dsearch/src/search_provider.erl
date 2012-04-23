@@ -22,7 +22,7 @@ create_and_activate() ->
 %%
 
 search(What, In, Pid) ->
-	gen_server:call(Pid, {search, What, In}).
+	gen_server:call(Pid, {search, What, In}, 200000).
 
 invalidate(Pid) ->
 	gen_server:cast(Pid, {invalidate}).
@@ -60,8 +60,8 @@ handle_info(Msg, State) ->
 handle_call({search, What, In}, _From, State) ->
 	{
         reply,
-        {ok},
-        do_search([], What, In, State#provider_state.parts)
+        {ok, do_search([], What, In, State#provider_state.parts)},
+        State
     };
 handle_call({get, PartName}, _From, State) ->
 	FoundPart = dict:find(PartName, State#provider_state.parts),
@@ -104,7 +104,7 @@ collect_missing_data(CurrentState, CurrentStateDiff, [UpdateList_H | UpdateList_
 		{as_data, PartName, PartVersion, PartData} ->
 			{
 				CurrentState#provider_state{
-					parts = dict:store(PartName, PartData, CurrentState#provider_state.parts)
+					parts = dict:store(PartName, #part_info{part_data = PartData, part_version = PartVersion}, CurrentState#provider_state.parts)
 				},
 				dict:store(PartName, PartVersion, CurrentStateDiff)
 			};
@@ -114,7 +114,7 @@ collect_missing_data(CurrentState, CurrentStateDiff, [UpdateList_H | UpdateList_
 				{ok, PartVersion, PartData} ->
 					{
 						CurrentState#provider_state{
-							parts = dict:store(PartName, PartData, CurrentState#provider_state.parts)
+							parts = dict:store(PartName, #part_info{part_data = PartData, part_version = PartVersion}, CurrentState#provider_state.parts)
 						},
 						dict:store(PartName, PartVersion, CurrentStateDiff)
 					};

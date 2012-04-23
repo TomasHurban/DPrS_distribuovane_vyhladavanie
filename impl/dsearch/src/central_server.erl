@@ -95,8 +95,8 @@ handle_call({search, What}, _From, State) ->
 	distribute_search(dict:to_list(SearchDistribution), What),
 	{
         reply,
-        {ok},
-		collect_results([], dict:size())
+        {ok, collect_results([], dict:size(SearchDistribution))},
+		State
     };
 handle_call({connect, ProviderId, StateDiff}, From, State) ->
 	Providers = State#server_state.providers,
@@ -119,7 +119,8 @@ handle_call({connect, ProviderId, StateDiff}, From, State) ->
 	ConnectedProviders_new = 
 	case UpdateList of
 		[] ->
-			dict:store(ProviderId, From, State#server_state.connected_providers);
+			{Ref, _} = From,
+			dict:store(ProviderId, Ref, State#server_state.connected_providers);
 		_ ->
 			dict:erase(ProviderId, State#server_state.connected_providers)
 	end,
@@ -304,5 +305,5 @@ collect_results(CurrentResults, RemainingCount) when RemainingCount == 0 ->
 	CurrentResults;
 collect_results(CurrentResults, RemainingCount) ->
 	receive
-			Result -> collect_results([Result | CurrentResults], RemainingCount - 1)
+			{ok, Result} -> collect_results(CurrentResults ++ Result, RemainingCount - 1)
 	end.
