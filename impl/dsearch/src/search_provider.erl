@@ -16,7 +16,7 @@
 
 create_and_activate() ->
 	log("search provider started ..."),
-	gen_server:start_link({global, random_id(20)}, ?MODULE, [], []),
+	gen_server:start_link({global, random_id(20)}, ?MODULE, [], []).
 
 %%
 %% for central_server
