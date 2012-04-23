@@ -15,7 +15,8 @@
 %%
 
 create_and_activate() ->
-	gen_server:start_link({global, ?MODULE}, ?MODULE, [], []).
+	gen_server:start_link({global, ?MODULE}, ?MODULE, [], []),
+	log("search provider started ...").
 
 %%
 %% for central_server
@@ -150,3 +151,13 @@ do_search(CurrentResults, What, [In_H | In_T], Parts) ->
 		true ->
 			do_search(CurrentResults, What, In_T, Parts)
 	end.
+
+log(What) ->
+	{ok, WriteDescr} = file:open("log.txt", [raw, append]),
+	{Date={Year, Month, Day},Time={Hour, Minutes, Seconds}} = erlang:localtime(),
+	DateTime = io_lib:format('~4..0b-~2..0b-~2..0b ~2..0b:~2..0b:~2..0b', [Year, Month, Day, Hour, Minutes, Seconds]),
+	Module = "provider",
+	Message = "-> " ++ What ++ "\r\n",
+	TextToLog = DateTime ++ " [" ++ Module ++ "] " ++ Message,
+	file:write(WriteDescr, TextToLog),
+	file:close(WriteDescr).
