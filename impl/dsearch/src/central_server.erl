@@ -7,6 +7,8 @@
 -export([init/1, terminate/2, code_change/3, handle_info/2]).
 -export([handle_call/3, handle_cast/2]).
 
+-export([search_using_provider/4]).
+
 -record(server_state, {providers, parts, connected_providers, waiting_parts}).
 -record(part_info, {current_version, providers}).
 -record(part_copy_info, {part_version, search_time}).
@@ -89,7 +91,7 @@ handle_call({update, PartName, PartData}, _From, State) ->
 		}
     };
 handle_call({search, What}, _From, State) ->
-	SearchDistribution = build_search_distribution(dict:new(), State#server_state.parts, State#server_state.connected_providers),
+	SearchDistribution = build_search_distribution(dict:new(), dict:to_list(State#server_state.parts), State#server_state.connected_providers),
 	distribute_search(dict:to_list(SearchDistribution), What),
 	{
         reply,
@@ -146,6 +148,13 @@ handle_call({connect, ProviderId, StateDiff}, From, State) ->
 
 handle_cast(_, _State) ->
 	nothing.
+
+%%
+%% Process begin functions
+%%
+
+search_using_provider(What, SearchIn, ProviderPid, ParentPid) ->
+	ParentPid ! search_provider:search(What, SearchIn, ProviderPid).
 
 %%
 %% Local Functions
@@ -277,7 +286,7 @@ build_search_distribution(CurrentSearchDistribution, [], _ConnectedProviders) ->
 	CurrentSearchDistribution;
 build_search_distribution(CurrentSearchDistribution, [AllPartsList_H | AllPartsList_T], ConnectedProviders) ->
 	{PartName, PartInfo} = AllPartsList_H,
-	ProviderPid = random_connected_provider_pid_for_part(PartInfo#part_info.providers, ConnectedProviders),
+	ProviderPid = random_connected_provider_pid_for_part(dict:to_list(PartInfo#part_info.providers), ConnectedProviders),
 	build_search_distribution(
 		dict:append(ProviderPid, PartName, CurrentSearchDistribution),
 		AllPartsList_T,
@@ -290,9 +299,6 @@ distribute_search([SearchDistribution_H | SearchDistribution_T], What) ->
 	{ProviderPid, SearchIn} = SearchDistribution_H,
 	spawn_link(central_server, search_using_provider, [What, SearchIn, ProviderPid, self()]),
 	distribute_search(SearchDistribution_T, What).
-
-search_using_provider(What, SearchIn, ProviderPid, ParentPid) ->
-	ParentPid ! search_provider:search(What, SearchIn, ProviderPid).
 
 collect_results(CurrentResults, RemainingCount) when RemainingCount == 0 ->
 	CurrentResults;

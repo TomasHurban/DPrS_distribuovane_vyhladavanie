@@ -44,7 +44,8 @@ init([]) ->
 	State = #provider_state{
 		id = Id,
 		parts = Parts},
-	{ok, do_connecting_to_central_server(State, dict:new())}.
+	State_new = do_connecting_to_central_server(State, dict:new()),
+	{ok, State_new}.
 
 terminate(normal, _State) ->
 	ok.
