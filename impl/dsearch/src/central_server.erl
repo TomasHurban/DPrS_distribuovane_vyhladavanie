@@ -74,7 +74,7 @@ handle_call({update, PartName, PartData}, _From, State) ->
 	NewVersion =
 	case FoundPart of
 		{ok, PartInfo} ->
-			MsgToLog = io_lib:format('updating part \"" ++ PartName ++ "\" to version ~p', [PartInfo#part_info.current_version + 1]),
+			MsgToLog = "updating part \"" ++ PartName ++ "\" to version " ++ io_lib:format('~p', [PartInfo#part_info.current_version + 1]),
 			log(MsgToLog),
 			invalidate_providers_with_part(dict:to_list(PartInfo#part_info.providers), State#server_state.connected_providers),
 			PartInfo#part_info.current_version + 1;
@@ -176,6 +176,7 @@ search_using_provider(What, SearchIn, ProviderPid, ParentPid) ->
 merge_parts_in_provider(CurrentPartsInProvider, []) ->
 	CurrentPartsInProvider;
 merge_parts_in_provider(CurrentPartsInProvider, [StateDiffList_H | StateDiffList_T]) ->
+	log("merge parts ..."),
 	{PartName, PartVersion} = StateDiffList_H,
 	
 	merge_parts_in_provider(
@@ -193,6 +194,7 @@ merge_parts_in_provider(CurrentPartsInProvider, [StateDiffList_H | StateDiffList
 merge_providers_in_parts(CurrentParts, [], _ProviderId) ->
 	CurrentParts;
 merge_providers_in_parts(CurrentParts, [StateDiffList_H | StateDiffList_T], ProviderId) ->
+	log("merge providers ..."),
 	{PartName, PartVersion} = StateDiffList_H,
 	PartInfo = dict:fetch(PartName, CurrentParts),
 	ProvidersInPart = PartInfo#part_info.providers,
@@ -219,6 +221,7 @@ merge_providers_in_parts(CurrentParts, [StateDiffList_H | StateDiffList_T], Prov
 remove_waiting_parts(CurrentWaitingParts, []) ->
 	CurrentWaitingParts;
 remove_waiting_parts(CurrentWaitingParts, [PartsList_H | PartsList_T]) ->
+	log("remove waiting parts ..."),
 	{PartName, PartInfo} = PartsList_H,
 	Providers = PartInfo#part_info.providers,
 	CopiesCount = dict:size(Providers),
@@ -232,6 +235,7 @@ remove_waiting_parts(CurrentWaitingParts, [PartsList_H | PartsList_T]) ->
 build_update_list(CurrentUpdateList, [], _PartsInProvider, _WaitingParts, _ConnectedProviders) ->
 	CurrentUpdateList;
 build_update_list(CurrentUpdateList, [AllPartsList_H | AllPartsList_T], PartsInProvider, WaitingParts, ConnectedProviders) ->
+	log("build update list ..."),
 	{PartName, PartInfo} = AllPartsList_H,
 	CurrentPartVersion = PartInfo#part_info.current_version,
 	ProvidersInPart = PartInfo#part_info.providers,
@@ -271,6 +275,7 @@ build_update_list(CurrentUpdateList, [AllPartsList_H | AllPartsList_T], PartsInP
 invalidate_providers_with_part([], _ConnectedProviders) ->
 	ok;
 invalidate_providers_with_part([ProvidersInPartList_H | ProvidersInPartList_T], ConnectedProviders) ->
+	log("invalidate providers with part ..."),
 	{ProviderId, _}  = ProvidersInPartList_H,
 	FoundProviderPid = dict:find(ProviderId, ConnectedProviders),
 	case FoundProviderPid of
@@ -298,6 +303,7 @@ random_connected_provider_pid_for_part(ProvidersInPartList, ConnectedProviders) 
 build_search_distribution(CurrentSearchDistribution, [], _ConnectedProviders) ->
 	CurrentSearchDistribution;
 build_search_distribution(CurrentSearchDistribution, [AllPartsList_H | AllPartsList_T], ConnectedProviders) ->
+	log("build search distribution ..."),
 	{PartName, PartInfo} = AllPartsList_H,
 	ProviderPid = random_connected_provider_pid_for_part(dict:to_list(PartInfo#part_info.providers), ConnectedProviders),
 	build_search_distribution(
@@ -309,6 +315,7 @@ build_search_distribution(CurrentSearchDistribution, [AllPartsList_H | AllPartsL
 distribute_search([], _What) ->
 	ok;
 distribute_search([SearchDistribution_H | SearchDistribution_T], What) ->
+	log("distribute search ..."),
 	{ProviderPid, SearchIn} = SearchDistribution_H,
 	spawn_link(central_server, search_using_provider, [What, SearchIn, ProviderPid, self()]),
 	distribute_search(SearchDistribution_T, What).
@@ -316,6 +323,7 @@ distribute_search([SearchDistribution_H | SearchDistribution_T], What) ->
 collect_results(CurrentResults, RemainingCount) when RemainingCount == 0 ->
 	CurrentResults;
 collect_results(CurrentResults, RemainingCount) ->
+	log("collect results ..."),
 	receive
 			{ok, Result} -> collect_results(CurrentResults ++ Result, RemainingCount - 1)
 	end.

@@ -45,6 +45,7 @@ get(PartName, Pid) ->
 %%
 
 init([]) ->
+	log("initialization ..."),
 	Parts = dict:new(),
 	Id = random_id(16),
 	State = #provider_state{
@@ -54,6 +55,7 @@ init([]) ->
 	{ok, State_new}.
 
 terminate(normal, _State) ->
+	log("termination ..."),
 	ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -73,6 +75,8 @@ handle_call({get, PartName}, _From, State) ->
 	FoundPart = dict:find(PartName, State#provider_state.parts),
 	case FoundPart of
 		{ok, PartInfo} ->
+			MsgToLog = "part \"" ++ PartName ++ "\" found ",
+			log(MsgToLog),
 			{
 		        reply,
 		        {ok},
@@ -106,6 +110,7 @@ random_id(Length) ->
 collect_missing_data(CurrentState, CurrentStateDiff, []) ->
 	{CurrentState, CurrentStateDiff};
 collect_missing_data(CurrentState, CurrentStateDiff, [UpdateList_H | UpdateList_T]) ->
+	log("collect missing data ..."),
 	{NewState, NewStateDiff} =
 	case UpdateList_H of
 		{as_data, PartName, PartVersion, PartData} ->
@@ -134,6 +139,7 @@ collect_missing_data(CurrentState, CurrentStateDiff, [UpdateList_H | UpdateList_
 	collect_missing_data(NewState, NewStateDiff, UpdateList_T).
 
 do_connecting_to_central_server(State, StateDiff) ->
+	log("connecting to central server ..."),
 	ConnectResponse = central_server:connect(State#provider_state.id, StateDiff),
 	StateAfterCollected = 
 	case ConnectResponse of
