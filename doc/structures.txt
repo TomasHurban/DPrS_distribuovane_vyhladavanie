@@ -3,14 +3,14 @@ server_state
 		- key: provider_id
 		- value: parts - dict:
 			- key: part_name
-			- value: part_copy_info
+			- value: part_version
 	- parts - dict:
 		- key: part_name
 		- value: part_info - part_info:
 			- current_version
 			- providers - dict:
 				- key: provider_id
-				- value - part_copy_info
+				- value: search_time
 	- connected_providers - dict:
 		- key: provider_id
 		- value: provider_pid
@@ -25,6 +25,10 @@ state_diff - dict:
 search_distribution - dict:
 	- key: provider_pid
 	- value: list_of_part_names
+
+part_copy_info:
+	- part_version
+	- search_time
 
 update_item:
 {as_data, part_name, part_version, part_data}

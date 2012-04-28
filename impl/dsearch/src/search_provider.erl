@@ -68,7 +68,7 @@ handle_info(Msg, State) ->
 handle_call({search, What, In}, _From, State) ->
 	{
         reply,
-        {ok, do_search([], What, In, State#provider_state.parts)},
+        do_search([], dict:new(), What, In, State#provider_state.parts),
         State
     };
 handle_call({get, PartName}, _From, State) ->
@@ -152,16 +152,18 @@ do_connecting_to_central_server(State, StateDiff) ->
 	end,
 	StateAfterCollected.
 
-do_search(CurrentResults, _What, [], _Parts) ->
-	CurrentResults;
-do_search(CurrentResults, What, [In_H | In_T], Parts) ->
+do_search(CurrentResults, CurrentTimes, _What, [], _Parts) ->
+	{CurrentResults, CurrentTimes};
+do_search(CurrentResults, CurrentTimes, What, [In_H | In_T], Parts) ->
 	PartInfo = dict:fetch(In_H, Parts),
+	TimeBefore = util:get_time(),
 	Pos = string:str(PartInfo#part_info.part_data, What),
+	TimeAfter = util:get_time(),
 	if
 		Pos > 0 ->
-			do_search([In_H | CurrentResults], What, In_T, Parts);
+			do_search([In_H | CurrentResults], dict:store(In_H, TimeAfter - TimeBefore, CurrentTimes) , What, In_T, Parts);
 		true ->
-			do_search(CurrentResults, What, In_T, Parts)
+			do_search(CurrentResults, dict:store(In_H, TimeAfter - TimeBefore, CurrentTimes), What, In_T, Parts)
 	end.
 
 log(What) ->

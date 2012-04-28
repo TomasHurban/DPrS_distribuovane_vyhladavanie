@@ -21,7 +21,7 @@ data_providers_search() ->
 	{ok, Results} = central_server:search("g"),
 	ok.
 
-providers_data_search__test() ->
+providers_data_search() ->
 	central_server:start_link(),
 	search_provider_supervisor:start_link(),
 	search_provider_supervisor:start_link(),
@@ -30,10 +30,12 @@ providers_data_search__test() ->
 	timer:sleep(1000),
 	central_server:update("part1", "abc"),
 	timer:sleep(1000),
+	central_server:update("part2", "aabc"),
+	timer:sleep(1000),
 	A = central_server:search("a"),
 	ok.
 
-update_existing_part() ->
+update_existing_part__test() ->
 	central_server:start_link(),
 	central_server:update("part1", "abc"),
 	search_provider_supervisor:start_link(),

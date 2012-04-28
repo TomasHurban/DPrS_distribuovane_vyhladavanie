@@ -7,11 +7,10 @@
 -export([init/1, terminate/2, code_change/3, handle_info/2]).
 -export([handle_call/3, handle_cast/2]).
 
--export([search_using_provider/4]).
+-export([search_using_provider/5]).
 
 -record(server_state, {providers, parts, connected_providers, waiting_parts}).
 -record(part_info, {current_version, providers}).
--record(part_copy_info, {part_version, search_time}).
 -record(waiting_part_info, {part_data, copy_requests_to_providers}).
 
 -define(PREFERRED_COPIES_COUNT, 4).
@@ -121,11 +120,14 @@ handle_call({search, What}, _From, State) ->
 				State
 		    };
 		error ->
-			distribute_search(dict:to_list(SearchDistribution), What),
+			SpawnIds = distribute_search(sets:new(), dict:to_list(SearchDistribution), What),
+			{Results, NewParts} = collect_results([], SpawnIds, State#server_state.parts, State#server_state.connected_providers),
 			{
 		        reply,
-		        {ok, collect_results([], dict:size(SearchDistribution))},
-				State
+		        {ok, Results},
+				State#server_state{
+					parts = NewParts
+				}
 		    }
 	end;
 handle_call({connect, ProviderId, StateDiff}, From, State) ->
@@ -187,8 +189,9 @@ handle_cast(_, _State) ->
 %% Process begin functions
 %%
 
-search_using_provider(What, SearchIn, ProviderPid, ParentPid) ->
-	ParentPid ! search_provider:search(What, SearchIn, ProviderPid).
+search_using_provider(What, SearchIn, ProviderPid, ParentPid, SpawnId) ->
+	{SearchResults, Times} = search_provider:search(What, SearchIn, ProviderPid),
+	ParentPid ! {SpawnId, SearchResults, Times, ProviderPid}.
 
 %%
 %% Local Functions
@@ -203,10 +206,7 @@ merge_parts_in_provider(CurrentPartsInProvider, [StateDiffList_H | StateDiffList
 	merge_parts_in_provider(
 		dict:store(
 		  	PartName,
-			#part_copy_info{
-				part_version = PartVersion,
-				search_time = undefined
-			},
+			PartVersion,
 			CurrentPartsInProvider
 		),
 		StateDiffList_T
@@ -216,28 +216,36 @@ merge_providers_in_parts(CurrentParts, [], _ProviderId) ->
 	CurrentParts;
 merge_providers_in_parts(CurrentParts, [StateDiffList_H | StateDiffList_T], ProviderId) ->
 	log("merge providers ..."),
-	{PartName, PartVersion} = StateDiffList_H,
+	{PartName, PartVersionFromStateDiff} = StateDiffList_H,
 	PartInfo = dict:fetch(PartName, CurrentParts),
 	ProvidersInPart = PartInfo#part_info.providers,
 	
-	merge_providers_in_parts(
-		dict:store(
-		  	PartName,
-			PartInfo#part_info{
-				providers = dict:store(
-					ProviderId,
-					#part_copy_info{
-						part_version = PartVersion,
-						search_time = undefined
-					},
-					ProvidersInPart
-				)
-			},			
-			CurrentParts
-		),
-		StateDiffList_T,
-		ProviderId
-	).
+	CurrentPartVersion = PartInfo#part_info.current_version,
+	
+	if 
+		PartVersionFromStateDiff == CurrentPartVersion ->
+			merge_providers_in_parts(
+				dict:store(
+				  	PartName,
+					PartInfo#part_info{
+						providers = dict:store(
+							ProviderId,
+							undefined,
+							ProvidersInPart
+						)
+					},			
+					CurrentParts
+				),
+				StateDiffList_T,
+				ProviderId
+			);
+		true ->
+			merge_providers_in_parts(
+				CurrentParts,
+				StateDiffList_T,
+				ProviderId
+			)
+	end.
 
 remove_waiting_parts(CurrentWaitingParts, []) ->
 	CurrentWaitingParts;
@@ -254,7 +262,7 @@ remove_waiting_parts(CurrentWaitingParts, [PartsList_H | PartsList_T]) ->
 					log(io_lib:format("removing waiting part ~p because of sufficient distribution", [PartName])),
 					remove_waiting_parts(dict:erase(PartName, CurrentWaitingParts), PartsList_T);
 				error ->
-					nothing
+					remove_waiting_parts(CurrentWaitingParts, PartsList_T)
 			end;
 		true ->
 			remove_waiting_parts(CurrentWaitingParts, PartsList_T)
@@ -274,8 +282,8 @@ build_update_list(CurrentUpdateList, [AllPartsList_H | AllPartsList_T], PartsInP
 	FoundPartInProvider = dict:find(PartName, PartsInProvider),
 	{LowerPartVersionInProvider, PartAlreadyInProvider} = 
 	case FoundPartInProvider of
-		{ok, PartCopyInfo} ->
-			{PartCopyInfo#part_copy_info.part_version < CurrentPartVersion, true};
+		{ok, PartVersion} ->
+			{PartVersion < CurrentPartVersion, true};
 		error ->
 			{false, false}
 	end,
@@ -357,20 +365,62 @@ build_search_distribution(CurrentSearchDistribution, [AllPartsList_H | AllPartsL
 		ConnectedProviders
 	).
 
-distribute_search([], _What) ->
-	ok;
-distribute_search([SearchDistribution_H | SearchDistribution_T], What) ->
+distribute_search(CurrentSpawnIds, [], _What) ->
+	CurrentSpawnIds;
+distribute_search(CurrentSpawnIds, [SearchDistribution_H | SearchDistribution_T], What) ->
 	log("distribute search ..."),
 	{ProviderPid, SearchIn} = SearchDistribution_H,
-	spawn_link(central_server, search_using_provider, [What, SearchIn, ProviderPid, self()]),
-	distribute_search(SearchDistribution_T, What).
+	SpawnId = util:random_id(20),
+	spawn_link(central_server, search_using_provider, [What, SearchIn, ProviderPid, self(), SpawnId]),
+	distribute_search(sets:add_element(SpawnId, CurrentSpawnIds), SearchDistribution_T, What).
 
-collect_results(CurrentResults, RemainingCount) when RemainingCount == 0 ->
-	CurrentResults;
-collect_results(CurrentResults, RemainingCount) ->
+collect_results(CurrentResults, RemainingSpawnIds, CurrentParts, ConnectedProviders) ->
 	log("collect results ..."),
-	receive
-			{ok, Result} -> collect_results(CurrentResults ++ Result, RemainingCount - 1)
+	RemainingSpawnIdsCount = sets:size(RemainingSpawnIds),
+	case RemainingSpawnIdsCount of
+		0 ->
+			{CurrentResults, CurrentParts};
+		_ ->
+		receive
+				{SpawnId, SearchResults, SearchTimesFromProvider, ProviderPid} ->
+					SpawnIdValid = sets:is_element(SpawnId, RemainingSpawnIds),
+					case SpawnIdValid of
+						true ->
+							collect_results(
+								CurrentResults ++ SearchResults,
+								sets:del_element(SpawnId, RemainingSpawnIds),
+								update_search_times(
+									dict:to_list(SearchTimesFromProvider),
+									get_provider_id_by_pid(dict:to_list(ConnectedProviders), ProviderPid),
+									CurrentParts									
+								),
+								ConnectedProviders
+							);
+						false ->
+							collect_results(CurrentResults, RemainingSpawnIds, CurrentParts, ConnectedProviders)
+					end
+		end
+	end.
+
+update_search_times([], _ProviderId, CurrentParts) ->
+	CurrentParts;
+update_search_times([NewSearchTimes_H | NewSearchTimes_T], ProviderId, CurrentParts) ->
+	{PartName, SearchTime} = NewSearchTimes_H,
+	PartInfo = dict:fetch(PartName, CurrentParts),
+	Providers = PartInfo#part_info.providers,
+	NewProviders = dict:store(ProviderId, SearchTime, Providers),
+	NewPartInfo = PartInfo#part_info{providers = NewProviders},
+	update_search_times(NewSearchTimes_T, ProviderId, dict:store(PartName, NewPartInfo, CurrentParts)).
+
+get_provider_id_by_pid([], _ProviderPid) ->
+	not_found;
+get_provider_id_by_pid([ConnectedProviders_H | ConnectedProviders_T], ProviderPid) ->
+	{Id, Pid} = ConnectedProviders_H,
+	if
+		Pid == ProviderPid ->
+			Id;
+		true ->
+			get_provider_id_by_pid(ConnectedProviders_T, ProviderPid)
 	end.
 
 log(What) ->
