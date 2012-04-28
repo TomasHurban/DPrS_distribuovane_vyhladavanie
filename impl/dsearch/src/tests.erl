@@ -21,23 +21,12 @@ data_providers_search() ->
 	{ok, Results} = central_server:search("g"),
 	ok.
 
-providers_data_search__test() ->
+update_existing_part__test() ->
 	central_server:start_link(),
-	search_provider_supervisor:start_link(),
-	search_provider_supervisor:start_link(),
-	search_provider_supervisor:start_link(),
-	search_provider_supervisor:start_link(),
 	central_server:update("part1", "abc"),
-	central_server:update("part2", "def"),
-	central_server:update("part3", "ghi"),
-	central_server:update("part33", "ihg"),
-	central_server:update("part4", "jkl"),
-	central_server:update("part5", "mno"),
-	central_server:update("part6", "pqr"),
-	central_server:update("part7", "stu"),
-	central_server:update("part8", "vwx"),
-	central_server:update("part9", "yz"),
 	search_provider_supervisor:start_link(),
-	central_server:update("part33", "vuw"),
-	%{ok, Results} = central_server:search("g"),
+	timer:sleep(2000),
+	central_server:update("part1", "def"),
+	timer:sleep(2000),
+	{ok, Results} = central_server:search("def"),
 	ok.

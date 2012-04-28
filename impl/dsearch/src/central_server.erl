@@ -7,7 +7,6 @@
 -export([init/1, terminate/2, code_change/3, handle_info/2]).
 -export([handle_call/3, handle_cast/2]).
 
--export([search_try/4]).
 -export([search_using_provider/4]).
 
 -record(server_state, {providers, parts, connected_providers, waiting_parts}).
@@ -104,7 +103,13 @@ handle_call({update, PartName, PartData}, _From, State) ->
 		}
     };
 handle_call({search, What}, _From, State) ->
-	{reply, {ok, search_loop(What, State)}, State};
+	SearchDistribution = build_search_distribution(dict:new(), dict:to_list(State#server_state.parts), State#server_state.connected_providers),
+	distribute_search(dict:to_list(SearchDistribution), What),
+	{
+        reply,
+        {ok, collect_results([], dict:size(SearchDistribution))},
+		State
+    };
 handle_call({connect, ProviderId, StateDiff}, From, State) ->
 	Providers = State#server_state.providers,
 	FoundProvider = dict:find(ProviderId, Providers),
@@ -122,6 +127,7 @@ handle_call({connect, ProviderId, StateDiff}, From, State) ->
 	Parts_new = merge_providers_in_parts(Parts, dict:to_list(StateDiff), ProviderId),
 	WaitingParts_new = remove_waiting_parts(State#server_state.waiting_parts, dict:to_list(Parts_new)),
 	UpdateList = build_update_list([], dict:to_list(Parts_new), PartsInProvider_new2, State#server_state.waiting_parts, State#server_state.connected_providers),
+	log(io_lib:format("created update list: ~p", [UpdateList])),
 	
 	ConnectedProviders_new = 
 	case UpdateList of
@@ -141,12 +147,14 @@ handle_call({connect, ProviderId, StateDiff}, From, State) ->
 	
 	case UpdateList of
 		[] ->
+			log(io_lib:format("provider connected: ~p", [ProviderId])),
 			{
 		        reply,
 		        ok,
 		        State_new
 		    };
 		_ ->
+			log(io_lib:format("asking provider to update data: ~p", [ProviderId])),
 			{
 		        reply,
 		        {update, UpdateList},
@@ -160,21 +168,6 @@ handle_cast(_, _State) ->
 %%
 %% Process begin functions
 %%
-
-search_loop(What, State) ->
-	TryId = util:random_id(16),
-	process_flag(trap_exit, true),
-	Pid = spawn_link(?MODULE, search_try, [What, State, self(), TryId]),
-	receive
-		{TryId, ok, Results} -> Results;
-		{'EXIT', Pid, _} -> search_loop(What, State)
-	end.
-
-search_try(What, State, Pid, TryId) ->
-	SearchDistribution = build_search_distribution(dict:new(), dict:to_list(State#server_state.parts), State#server_state.connected_providers),
-	distribute_search(dict:to_list(SearchDistribution), What),
-	Results = collect_results([], dict:size(SearchDistribution)),
-	Pid ! {TryId, ok, Results}.
 
 search_using_provider(What, SearchIn, ProviderPid, ParentPid) ->
 	ParentPid ! search_provider:search(What, SearchIn, ProviderPid).

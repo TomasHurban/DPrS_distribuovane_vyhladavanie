@@ -29,7 +29,7 @@ search(What, In, Pid) ->
 invalidate(Pid) ->
 	MsgToLog = "invalidate: " ++ io_lib:format('~p', [Pid]),
 	log(MsgToLog),
-	gen_server:cast(Pid, {invalidate}).
+	gen_server:call(Pid, {invalidate}, 200000).
 
 %%
 %% for another search provider
@@ -89,14 +89,18 @@ handle_call({get, PartName}, _From, State) ->
 		        {part_not_found},
 		        State
 		    }
-	end.
-
-handle_cast({invalidate}, State) ->
+	end;
+handle_call({invalidate}, _From, State) ->
+	State_new = do_connecting_to_central_server(State, dict:new()),
 	{
-		noreply,
-		do_connecting_to_central_server(State, dict:new())
+		reply,
+		ok,
+		State_new
 	}.
-	
+
+handle_cast(_, _State) ->
+	not_supported.
+
 %%
 %% Local Functions
 %%
@@ -108,6 +112,7 @@ collect_missing_data(CurrentState, CurrentStateDiff, [UpdateList_H | UpdateList_
 	{NewState, NewStateDiff} =
 	case UpdateList_H of
 		{as_data, PartName, PartVersion, PartData} ->
+			log(io_lib:format("updating part ~p to version ~p from data ~p", [PartName, PartVersion, PartData])),
 			{
 				CurrentState#provider_state{
 					parts = dict:store(PartName, #part_info{part_data = PartData, part_version = PartVersion}, CurrentState#provider_state.parts)
@@ -115,6 +120,7 @@ collect_missing_data(CurrentState, CurrentStateDiff, [UpdateList_H | UpdateList_
 				dict:store(PartName, PartVersion, CurrentStateDiff)
 			};
 		{from_provider, PartName, ProviderPid} ->
+			log(io_lib:format("updating part ~p from provider", [PartName])),
 			ProviderResponse = search_provider:get(PartName, ProviderPid),
 			case ProviderResponse of
 				{ok, PartVersion, PartData} ->
