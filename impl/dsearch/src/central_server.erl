@@ -14,6 +14,7 @@
 -record(part_copy_info, {part_version, search_time}).
 -record(waiting_part_info, {part_data, copy_requests_to_providers}).
 
+-define(PREFERRED_COPIES_COUNT, 4).
 
 %%
 %% for administration
@@ -71,17 +72,24 @@ handle_info(Msg, State) ->
 
 handle_call({update, PartName, PartData}, _From, State) ->
 	FoundPart = dict:find(PartName, State#server_state.parts),
-	NewVersion =
+	{NewVersion, AlreadyInvalidatedProviderIds} =
 	case FoundPart of
 		{ok, PartInfo} ->
 			MsgToLog = "updating part \"" ++ PartName ++ "\" to version " ++ io_lib:format('~p', [PartInfo#part_info.current_version + 1]),
 			log(MsgToLog),
-			invalidate_providers_with_part(dict:to_list(PartInfo#part_info.providers), State#server_state.connected_providers),
-			PartInfo#part_info.current_version + 1;
+			{
+				PartInfo#part_info.current_version + 1,
+				invalidate_providers_with_part(sets:new(), dict:to_list(PartInfo#part_info.providers), State#server_state.connected_providers)
+			};
 		error ->
 			log(PartName ++ " version set to 1"),
-			1
+			{
+				1,
+				sets:new()
+			}
 	end,
+	
+	invalidate_random_providers(AlreadyInvalidatedProviderIds, dict:to_list(State#server_state.connected_providers), ?PREFERRED_COPIES_COUNT - sets:size(AlreadyInvalidatedProviderIds)),
 	
 	{
         reply,
@@ -104,12 +112,22 @@ handle_call({update, PartName, PartData}, _From, State) ->
     };
 handle_call({search, What}, _From, State) ->
 	SearchDistribution = build_search_distribution(dict:new(), dict:to_list(State#server_state.parts), State#server_state.connected_providers),
-	distribute_search(dict:to_list(SearchDistribution), What),
-	{
-        reply,
-        {ok, collect_results([], dict:size(SearchDistribution))},
-		State
-    };
+	InvalidItem = dict:find(not_found, SearchDistribution),
+	case InvalidItem of
+		{ok, _} ->
+			{
+		        reply,
+		        {not_all_parts_available},
+				State
+		    };
+		error ->
+			distribute_search(dict:to_list(SearchDistribution), What),
+			{
+		        reply,
+		        {ok, collect_results([], dict:size(SearchDistribution))},
+				State
+		    }
+	end;
 handle_call({connect, ProviderId, StateDiff}, From, State) ->
 	Providers = State#server_state.providers,
 	FoundProvider = dict:find(ProviderId, Providers),
@@ -229,8 +247,15 @@ remove_waiting_parts(CurrentWaitingParts, [PartsList_H | PartsList_T]) ->
 	Providers = PartInfo#part_info.providers,
 	CopiesCount = dict:size(Providers),
 	if
-		CopiesCount >= 4 -> % TODO: not constant
-			remove_waiting_parts(dict:erase(PartName, CurrentWaitingParts), PartsList_T);
+		CopiesCount >= ?PREFERRED_COPIES_COUNT ->
+			FoundPart = dict:find(PartName, CurrentWaitingParts),
+			case FoundPart of
+				{ok, _} ->
+					log(io_lib:format("removing waiting part ~p because of sufficient distribution", [PartName])),
+					remove_waiting_parts(dict:erase(PartName, CurrentWaitingParts), PartsList_T);
+				error ->
+					nothing
+			end;
 		true ->
 			remove_waiting_parts(CurrentWaitingParts, PartsList_T)
 	end.
@@ -244,7 +269,7 @@ build_update_list(CurrentUpdateList, [AllPartsList_H | AllPartsList_T], PartsInP
 	ProvidersInPart = PartInfo#part_info.providers,
 	
 	CopiesCount = dict:size(ProvidersInPart),
-	PartNotInEnoughProviders = (CopiesCount < 4), % TODO: not constant
+	PartNotInEnoughProviders = (CopiesCount < ?PREFERRED_COPIES_COUNT),
 
 	FoundPartInProvider = dict:find(PartName, PartsInProvider),
 	{LowerPartVersionInProvider, PartAlreadyInProvider} = 
@@ -275,20 +300,37 @@ build_update_list(CurrentUpdateList, [AllPartsList_H | AllPartsList_T], PartsInP
 	
 	build_update_list(NewUpdateList, AllPartsList_T, PartsInProvider, WaitingParts, ConnectedProviders).
 
-invalidate_providers_with_part([], _ConnectedProviders) ->
-	ok;
-invalidate_providers_with_part([ProvidersInPartList_H | ProvidersInPartList_T], ConnectedProviders) ->
+invalidate_providers_with_part(CurrentInvalidatedIds, [], _ConnectedProviders) ->
+	CurrentInvalidatedIds;
+invalidate_providers_with_part(CurrentInvalidatedIds, [ProvidersInPartList_H | ProvidersInPartList_T], ConnectedProviders) ->
 	log("invalidate providers with part ..."),
 	{ProviderId, _}  = ProvidersInPartList_H,
 	FoundProviderPid = dict:find(ProviderId, ConnectedProviders),
 	case FoundProviderPid of
 		{ok, Pid} ->
-			spawn(search_provider, invalidate, [Pid]);
+			log(io_lib:format("invalidating provider ~p because it has an old version of a part", [ProviderId])),
+			spawn(search_provider, invalidate, [Pid]),
+			invalidate_providers_with_part(sets:add_element(ProviderId, CurrentInvalidatedIds), ProvidersInPartList_T, ConnectedProviders);
 		error ->
-			do_nothing
-	end,
-	invalidate_providers_with_part(ProvidersInPartList_T, ConnectedProviders).
+			invalidate_providers_with_part(CurrentInvalidatedIds, ProvidersInPartList_T, ConnectedProviders)
+	end.
 
+invalidate_random_providers(_NotThese, [], _Count) ->
+	ok;
+invalidate_random_providers(_NotThese, _, Count) when not Count > 0 ->
+	ok;
+invalidate_random_providers(NotThese, [ConnectedProviders_H | ConnectedProviders_T], Count) ->
+	{ProviderId, ProviderPid} = ConnectedProviders_H,
+	IsIgnored = sets:is_element(ProviderId, NotThese),
+	case IsIgnored of
+		true ->
+			invalidate_random_providers(NotThese, ConnectedProviders_T, Count);
+		false ->
+			log(io_lib:format("invalidating provider ~p because we need more providers to get a part", [ProviderId])),
+			spawn(search_provider, invalidate, [ProviderPid]),
+			invalidate_random_providers(NotThese, ConnectedProviders_T, Count - 1)
+	end.
+	
 random_connected_provider_pid_for_part([], _ConnectedProviders) ->
 	not_found;
 random_connected_provider_pid_for_part(ProvidersInPartList, ConnectedProviders) ->
