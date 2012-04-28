@@ -2,7 +2,7 @@
 -behaviour(gen_server).
 
 -export([start_link/0]).
--export([update/2, search/1, connect/2]).
+-export([update/2, search/1, search_with_retries/1, connect/2, disconnect/1]).
 -export([test_remove_waiting_parts/0]).
 
 -export([init/1, terminate/2, code_change/3, handle_info/2]).
@@ -37,6 +37,19 @@ search(What) ->
 	log("search: " ++ What),
 	gen_server:call({global, ?MODULE}, {search, What}, 200000).
 
+search_with_retries(What) ->
+	log("search with retry: " ++ What),
+	Result = gen_server:call({global, ?MODULE}, {search, What}, 200000),
+	case Result of
+		{ok, Results} ->
+			Results;
+		not_all_parts_available ->
+			timer:sleep(1000), % maybe some provider providing the missing parts comes
+			search_with_retries(What);
+		SomethingElse ->
+			SomethingElse
+	end.
+
 %%
 %% for search provider
 %%
@@ -45,6 +58,11 @@ connect(ProviderId, StateDiff) ->
 	MsgToLog = "connected provider ID: " ++ io_lib:format('~p', [ProviderId]),
 	log(MsgToLog),
 	gen_server:call({global, ?MODULE}, {connect, ProviderId, StateDiff}, 200000).
+
+disconnect(ProviderId) ->
+	MsgToLog = "disconnected provider ID: " ++ io_lib:format('~p', [ProviderId]),
+	log(MsgToLog),
+	gen_server:call({global, ?MODULE}, {disconnect, ProviderId}, 200000).
 
 %%
 %% tests
@@ -78,24 +96,27 @@ handle_info(Msg, State) ->
 
 handle_call({update, PartName, PartData}, _From, State) ->
 	FoundPart = dict:find(PartName, State#server_state.parts),
-	{NewVersion, AlreadyInvalidatedProviderIds} =
+	{NewVersion, AlreadyInvalidatedProviderIds, ConnectedProviders_New} =
 	case FoundPart of
 		{ok, PartInfo} ->
 			MsgToLog = "updating part \"" ++ PartName ++ "\" to version " ++ io_lib:format('~p', [PartInfo#part_info.current_version + 1]),
 			log(MsgToLog),
+			{AlreadyInvalidatedProviderIds_tmp, ConnectedProviders_New_tmp} = invalidate_providers_with_part(sets:new(), dict:to_list(PartInfo#part_info.providers), State#server_state.connected_providers),
 			{
 				PartInfo#part_info.current_version + 1,
-				invalidate_providers_with_part(sets:new(), dict:to_list(PartInfo#part_info.providers), State#server_state.connected_providers)
+				AlreadyInvalidatedProviderIds_tmp,
+				ConnectedProviders_New_tmp
 			};
 		error ->
 			log(PartName ++ " version set to 1"),
 			{
 				1,
-				sets:new()
+				sets:new(),
+				State#server_state.connected_providers
 			}
 	end,
 	
-	invalidate_random_providers(AlreadyInvalidatedProviderIds, dict:to_list(State#server_state.connected_providers), ?PREFERRED_COPIES_COUNT - sets:size(AlreadyInvalidatedProviderIds)),
+	ConnectedProviders_New2 = invalidate_random_providers(AlreadyInvalidatedProviderIds, dict:to_list(State#server_state.connected_providers), ?PREFERRED_COPIES_COUNT - sets:size(AlreadyInvalidatedProviderIds), ConnectedProviders_New),
 	
 	{
         reply,
@@ -113,7 +134,8 @@ handle_call({update, PartName, PartData}, _From, State) ->
 				PartName,
 				#waiting_part_info{part_data = PartData, copy_requests_to_providers = dict:new()},
 				State#server_state.waiting_parts
-			)
+			),
+			connected_providers = ConnectedProviders_New2
 		}
     };
 handle_call({search, What}, _From, State) ->
@@ -123,7 +145,7 @@ handle_call({search, What}, _From, State) ->
 		{ok, _} ->
 			{
 		        reply,
-		        {not_all_parts_available},
+		        not_all_parts_available,
 				State
 		    };
 		error ->
@@ -188,7 +210,15 @@ handle_call({connect, ProviderId, StateDiff}, From, State) ->
 		        State_new
 		    }
 	end;
-handle_call({test_remove_waiting_parts}, From, State) ->
+handle_call({disconnect, ProviderId}, _From, State) ->
+	{
+        reply,
+        ok,
+        State#server_state{
+			connected_providers = dict:erase(ProviderId, State#server_state.connected_providers)
+		}
+    };	
+handle_call({test_remove_waiting_parts}, _From, State) ->
 	{
         reply,
         ok,
@@ -323,35 +353,35 @@ build_update_list(CurrentUpdateList, [AllPartsList_H | AllPartsList_T], PartsInP
 	
 	build_update_list(NewUpdateList, AllPartsList_T, PartsInProvider, WaitingParts, ConnectedProviders).
 
-invalidate_providers_with_part(CurrentInvalidatedIds, [], _ConnectedProviders) ->
-	CurrentInvalidatedIds;
-invalidate_providers_with_part(CurrentInvalidatedIds, [ProvidersInPartList_H | ProvidersInPartList_T], ConnectedProviders) ->
+invalidate_providers_with_part(CurrentInvalidatedIds, [], CurrentConnectedProviders) ->
+	{CurrentInvalidatedIds, CurrentConnectedProviders};
+invalidate_providers_with_part(CurrentInvalidatedIds, [ProvidersInPartList_H | ProvidersInPartList_T], CurrentConnectedProviders) ->
 	log("invalidate providers with part ..."),
 	{ProviderId, _}  = ProvidersInPartList_H,
-	FoundProviderPid = dict:find(ProviderId, ConnectedProviders),
+	FoundProviderPid = dict:find(ProviderId, CurrentConnectedProviders),
 	case FoundProviderPid of
 		{ok, Pid} ->
 			log(io_lib:format("invalidating provider ~p because it has an old version of a part", [ProviderId])),
 			spawn(search_provider, invalidate, [Pid]),
-			invalidate_providers_with_part(sets:add_element(ProviderId, CurrentInvalidatedIds), ProvidersInPartList_T, ConnectedProviders);
+			invalidate_providers_with_part(sets:add_element(ProviderId, CurrentInvalidatedIds), ProvidersInPartList_T, dict:erase(ProviderId, CurrentConnectedProviders));
 		error ->
-			invalidate_providers_with_part(CurrentInvalidatedIds, ProvidersInPartList_T, ConnectedProviders)
+			invalidate_providers_with_part(CurrentInvalidatedIds, ProvidersInPartList_T, CurrentConnectedProviders)
 	end.
 
-invalidate_random_providers(_NotThese, [], _Count) ->
-	ok;
-invalidate_random_providers(_NotThese, _, Count) when not Count > 0 ->
-	ok;
-invalidate_random_providers(NotThese, [ConnectedProviders_H | ConnectedProviders_T], Count) ->
+invalidate_random_providers(_NotThese, [], _Count, CurrentConnectedProviders) ->
+	CurrentConnectedProviders;
+invalidate_random_providers(_NotThese, _, Count, CurrentConnectedProviders) when not Count > 0 ->
+	CurrentConnectedProviders;
+invalidate_random_providers(NotThese, [ConnectedProviders_H | ConnectedProviders_T], Count, CurrentConnectedProviders) ->
 	{ProviderId, ProviderPid} = ConnectedProviders_H,
 	IsIgnored = sets:is_element(ProviderId, NotThese),
 	case IsIgnored of
 		true ->
-			invalidate_random_providers(NotThese, ConnectedProviders_T, Count);
+			invalidate_random_providers(NotThese, ConnectedProviders_T, Count, CurrentConnectedProviders);
 		false ->
 			log(io_lib:format("invalidating provider ~p because we need more providers to get a part", [ProviderId])),
 			spawn(search_provider, invalidate, [ProviderPid]),
-			invalidate_random_providers(NotThese, ConnectedProviders_T, Count - 1)
+			invalidate_random_providers(NotThese, ConnectedProviders_T, Count - 1, dict:erase(ProviderId, CurrentConnectedProviders))
 	end.
 	
 random_connected_provider_pid_for_part([], _ConnectedProviders) ->
