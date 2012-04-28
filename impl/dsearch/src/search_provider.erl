@@ -72,6 +72,7 @@ handle_call({search, What, In}, _From, State) ->
         State
     };
 handle_call({get, PartName}, _From, State) ->
+	log(io_lib:format("searching for part: ~p", [PartName])),
 	FoundPart = dict:find(PartName, State#provider_state.parts),
 	case FoundPart of
 		{ok, PartInfo} ->
@@ -79,9 +80,8 @@ handle_call({get, PartName}, _From, State) ->
 			log(MsgToLog),
 			{
 		        reply,
-		        {ok},
-		        PartInfo#part_info.part_version,
-				PartInfo#part_info.part_data
+		        {ok, PartInfo#part_info.part_version, PartInfo#part_info.part_data},
+		        State
 		    };
 		error ->
 			{

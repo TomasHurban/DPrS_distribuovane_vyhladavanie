@@ -39,6 +39,8 @@ list of part names where the specified string occurs
 
 provider_state:
 	- id
-	- parts - list: part_info(in provider):
-		- part_version
-		- part_data
+	- parts - dict:
+		key: part_name
+		value: part_info(in provider):
+			- part_version
+			- part_data

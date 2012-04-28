@@ -2,7 +2,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
--export([data_providers_search/0, providers_data_search/0, update_existing_part/0]).
+-export([data_providers_search/0, providers_data_search/0, update_existing_part/0, get_part_from_other_provider/0]).
 
 data_providers_search() ->
 	log("TEST: data_providers_search()"),
@@ -51,6 +51,17 @@ update_existing_part() ->
 	timer:sleep(2000),
 	{ok, Results} = central_server:search("def"),
 	log("test end \r\n"),
+	ok.
+
+get_part_from_other_provider() ->
+	central_server:start_link(),
+	central_server:update("part1", "abc"),
+	search_provider_supervisor:start_link(),
+	timer:sleep(1000),
+	central_server:test_remove_waiting_parts(),
+	search_provider_supervisor:start_link(),
+	timer:sleep(2000),
+	{ok, Results} = central_server:search("abc"),
 	ok.
 
 log(What) ->

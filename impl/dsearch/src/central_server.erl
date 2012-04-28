@@ -3,6 +3,7 @@
 
 -export([start_link/0]).
 -export([update/2, search/1, connect/2]).
+-export([test_remove_waiting_parts/0]).
 
 -export([init/1, terminate/2, code_change/3, handle_info/2]).
 -export([handle_call/3, handle_cast/2]).
@@ -45,6 +46,12 @@ connect(ProviderId, StateDiff) ->
 	log(MsgToLog),
 	gen_server:call({global, ?MODULE}, {connect, ProviderId, StateDiff}, 200000).
 
+%%
+%% tests
+%%
+
+test_remove_waiting_parts() ->
+	gen_server:call({global, ?MODULE}, {test_remove_waiting_parts}, 200000).
 
 %%
 %% Callbacks
@@ -180,7 +187,15 @@ handle_call({connect, ProviderId, StateDiff}, From, State) ->
 		        {update, UpdateList},
 		        State_new
 		    }
-	end.
+	end;
+handle_call({test_remove_waiting_parts}, From, State) ->
+	{
+        reply,
+        ok,
+        State#server_state{
+			waiting_parts = dict:new()
+		}
+    }.
 
 handle_cast(_, _State) ->
 	nothing.
