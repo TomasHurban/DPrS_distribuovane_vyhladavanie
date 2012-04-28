@@ -46,8 +46,10 @@ get(PartName, Pid) ->
 
 init([]) ->
 	log("initialization ..."),
-	Parts = dict:new(),
 	Id = util:random_id(16),
+	search_provider_end_notifier:start_link_notifier(Id),
+	Parts = dict:new(),
+	
 	State = #provider_state{
 		id = Id,
 		parts = Parts},
