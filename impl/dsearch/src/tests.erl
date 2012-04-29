@@ -4,6 +4,7 @@
 
 -export([start/0]).
 -export([data_providers_search/0, providers_data_search/0, update_existing_part/0, get_part_from_other_provider/0]).
+-export([test1/0]).
 
 start() ->
 	{Result, Pid} = central_server:start_link(),
@@ -71,6 +72,30 @@ get_part_from_other_provider() ->
 	search_provider_supervisor:start_link(),
 	timer:sleep(2000),
 	{ok, Results} = central_server:search("abc"),
+	log("test end \r\n"),
+	ok.
+
+test1() ->
+	log("TEST: test1()"),
+	central_server:update("part1", "aaaaaa"),
+	central_server:update("part2", "bbbbbb"),
+	central_server:update("part3", "aaabbbaaa"),
+	central_server:update("part4", "cdefghi"),
+	central_server:update("part5", "abcdefg"),
+	search_provider_supervisor:start_link(),
+	search_provider_supervisor:start_link(),
+	{ok, Results1} = central_server:search("a"),
+	{ok, Results2} = central_server:search("aaa"),
+	{ok, Results3} = central_server:search("gh"),
+	search_provider_supervisor:start_link(),
+	{ok, Results4} = central_server:search("abb"),
+	{ok, Results5} = central_server:search("vc"),
+	{ok, Results6} = central_server:search("gf"),
+	central_server:update("part1", "ccccc"),
+	search_provider_supervisor:start_link(),
+	central_server:update("part2", "ddddd"),
+	search_provider_supervisor:start_link(),
+	{ok, Results7} = central_server:search("aaa"),
 	log("test end \r\n"),
 	ok.
 
