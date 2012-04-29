@@ -9,7 +9,7 @@ start_link() ->
 
 init(_Args) ->
 	{
-	ok,
+		ok,
 		{
 			{one_for_one, 10, 10},
 			[
