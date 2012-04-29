@@ -2,11 +2,22 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+-export([start/0]).
 -export([data_providers_search/0, providers_data_search/0, update_existing_part/0, get_part_from_other_provider/0]).
+
+start() ->
+	{Result, Pid} = central_server:start_link(),
+	if
+		Result == ok ->
+			log("server successfully started ..."),
+			ok;
+		true ->
+			log("error: server already running ..."),
+			error
+	end.
 
 data_providers_search() ->
 	log("TEST: data_providers_search()"),
-	central_server:start_link(),
 	central_server:update("part1", "abc"),
 	central_server:update("part2", "def"),
 	central_server:update("part3", "ghi"),
@@ -27,7 +38,6 @@ data_providers_search() ->
 
 providers_data_search() ->
 	log("TEST: providers_data_search_test()"),
-	central_server:start_link(),
 	search_provider_supervisor:start_link(),
 	search_provider_supervisor:start_link(),
 	search_provider_supervisor:start_link(),
@@ -43,7 +53,6 @@ providers_data_search() ->
 
 update_existing_part() ->
 	log("TEST: update_existing_part()"),
-	central_server:start_link(),
 	central_server:update("part1", "abc"),
 	search_provider_supervisor:start_link(),
 	timer:sleep(2000),
@@ -54,7 +63,7 @@ update_existing_part() ->
 	ok.
 
 get_part_from_other_provider() ->
-	central_server:start_link(),
+	log("TEST: get_part_from_other_provider()"),
 	central_server:update("part1", "abc"),
 	search_provider_supervisor:start_link(),
 	timer:sleep(1000),
@@ -62,6 +71,7 @@ get_part_from_other_provider() ->
 	search_provider_supervisor:start_link(),
 	timer:sleep(2000),
 	{ok, Results} = central_server:search("abc"),
+	log("test end \r\n"),
 	ok.
 
 log(What) ->
@@ -69,7 +79,7 @@ log(What) ->
 	{Date={Year, Month, Day},Time={Hour, Minutes, Seconds}} = erlang:localtime(),
 	DateTime = io_lib:format('~4..0b-~2..0b-~2..0b ~2..0b:~2..0b:~2..0b', [Year, Month, Day, Hour, Minutes, Seconds]),
 	Module = "tests",
-	Message = "-> " ++ What ++ "\r\n",
+	Message = "   -> " ++ What ++ "\r\n",
 	TextToLog = DateTime ++ " [" ++ Module ++ "] " ++ Message,
 	file:write(WriteDescr, TextToLog),
 	file:close(WriteDescr).
