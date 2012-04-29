@@ -56,3 +56,5 @@ File->Import->Existing Projects into Workspace
 
 Ukazky testovacich funkcii je mozne najst v module tests. 
 Najskor je potrebne spustit server pomocou funkcie start() a potom je mozne skusat testovacie funkcie.
+
+System jednotlive cinnosti zapisuje do log suboru (log.txt), ktory sa nachadza vo workspace adresari Eclipse.
